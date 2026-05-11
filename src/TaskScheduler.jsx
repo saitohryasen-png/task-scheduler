@@ -21,10 +21,10 @@ function clamp(v, min, max) {
 
 const initialTasks = [
   { id: 1, name: "設計", start: 0, duration: 1, colorIdx: 0 },
-  { id: 2, name: "設計レビュー",     start: 0, duration: 1, colorIdx: 1 },
-  { id: 3, name: "コーティング",           start: 0, duration: 1, colorIdx: 2 },
-  { id: 4, name: "テスト",     start: 0, duration: 1, colorIdx: 3 },
-  { id: 5, name: "コードレビュー",           start: 0, duration: 1, colorIdx: 4 },
+  { id: 2, name: "設計レビュー", start: 0, duration: 1, colorIdx: 1 },
+  { id: 3, name: "コーティング", start: 0, duration: 1, colorIdx: 2 },
+  { id: 4, name: "テスト", start: 0, duration: 1, colorIdx: 3 },
+  { id: 5, name: "コードレビュー", start: 0, duration: 1, colorIdx: 4 },
 ];
 
 const initialLinks = [
@@ -48,9 +48,9 @@ function ArrowLayer({ tasks, links, onDeleteLink, connectingFrom, mousePos, isWo
     return m;
   }, [tasks]);
 
-  const barLeft  = (task) => getWorkingDayStartPosition(task.start) * DAY_WIDTH;
+  const barLeft = (task) => getWorkingDayStartPosition(task.start) * DAY_WIDTH;
   const barRight = (task) => barLeft(task) + getWorkingDaysWidth(task.start, task.duration);
-  const midY     = (id)   => (taskIndexMap[id] ?? 0) * ROW_HEIGHT + ROW_HEIGHT / 2;
+  const midY = (id) => (taskIndexMap[id] ?? 0) * ROW_HEIGHT + ROW_HEIGHT / 2;
 
   function buildPath(x1, y1, x2, y2) {
     const dx = x2 - x1;
@@ -79,7 +79,7 @@ function ArrowLayer({ tasks, links, onDeleteLink, connectingFrom, mousePos, isWo
       }}
     >
       <defs>
-        {["arrow","arrow-preview"].map((id) => (
+        {["arrow", "arrow-preview"].map((id) => (
           <marker key={id} id={id} markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
             <path d="M0,0 L0,6 L8,3 z" fill={id === "arrow-preview" ? "#fbbf24" : "#94a3b8"} />
           </marker>
@@ -88,7 +88,7 @@ function ArrowLayer({ tasks, links, onDeleteLink, connectingFrom, mousePos, isWo
 
       {links.map((link) => {
         const from = tasks.find((t) => t.id === link.fromId);
-        const to   = tasks.find((t) => t.id === link.toId);
+        const to = tasks.find((t) => t.id === link.toId);
         if (!from || !to) return null;
         const d = buildPath(barRight(from), midY(from.id), barLeft(to), midY(to.id));
         return (
@@ -119,17 +119,17 @@ function ArrowLayer({ tasks, links, onDeleteLink, connectingFrom, mousePos, isWo
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 export default function TaskScheduler() {
-  const [tasks, setTasks]           = useState(initialTasks);
-  const [links, setLinks]           = useState(initialLinks);
+  const [tasks, setTasks] = useState(initialTasks);
+  const [links, setLinks] = useState(initialLinks);
   const [newTaskName, setNewTaskName] = useState("");
-  const [dragging, setDragging]     = useState(null);
-  const [hoveredId, setHoveredId]   = useState(null);
-  const [mode, setMode]             = useState("edit"); // "edit" | "connect"
+  const [dragging, setDragging] = useState(null);
+  const [hoveredId, setHoveredId] = useState(null);
+  const [mode, setMode] = useState("edit"); // "edit" | "connect"
   const [connectingFrom, setConnectingFrom] = useState(null);
-  const [mousePos, setMousePos]     = useState(null);
+  const [mousePos, setMousePos] = useState(null);
   const [projectStartDate, setProjectStartDate] = useState(new Date(2026, 4, 1)); // 2026年5月1日
   const [nonWorkingDates, setNonWorkingDates] = useState(new Set()); // 稼働しない日付の集合（"YYYY-MM-DD"形式）
-  const timelineAreaRef             = useRef(null);
+  const timelineAreaRef = useRef(null);
 
   const daysInTimeline = useMemo(() => {
     const maxEnd = tasks.reduce((max, t) => Math.max(max, t.start + t.duration), 0);
@@ -182,9 +182,9 @@ export default function TaskScheduler() {
 
   // 営業日ベースでの表示幅を計算（表示は実働日数のみ）
   const getWorkingDaysWidth = (startDay, duration) => {
-    for ( let i = startDay; i < (startDay + duration); i++){
+    for (let i = startDay; i < (startDay + duration); i++) {
       if (!isWorkingDay(i)) {
-        duration ++;
+        duration++;
       }
     }
     return Math.max(duration * DAY_WIDTH, DAY_WIDTH);
@@ -274,7 +274,7 @@ export default function TaskScheduler() {
     console.log('syncTaskTimes');
     let updated = currentTasks;
 
-    for (let pass = 0; pass < updated.length; pass++) {    
+    for (let pass = 0; pass < updated.length; pass++) {
       let changed = false;
       const snapshot = updated;
 
@@ -334,7 +334,7 @@ export default function TaskScheduler() {
       <div style={{ display: "flex", gap: 10, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
         {/* Mode buttons */}
         <div style={{ display: "flex", background: "#1a1f2e", borderRadius: 8, padding: 3, gap: 3 }}>
-          {[["edit","✏️ 編集"],["connect","🔗 接続"]].map(([m, label]) => (
+          {[["edit", "✏️ 編集"], ["connect", "🔗 接続"]].map(([m, label]) => (
             <button key={m} onClick={() => { setMode(m); cancelConnect(); }}
               style={{
                 background: mode === m ? "#3b82f6" : "transparent", border: "none",
@@ -351,8 +351,8 @@ export default function TaskScheduler() {
         {/* Project start date picker */}
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#cbd5e1" }}>
           📅 プロジェクト開始日:
-          <input 
-            type="date" 
+          <input
+            type="date"
             value={formatDateString(projectStartDate)}
             onChange={(e) => setProjectStartDate(new Date(e.target.value))}
             style={{
@@ -409,14 +409,16 @@ export default function TaskScheduler() {
                 {/* Duration Time */}
                 <input key={task.id} value={task.duration}
                   onChange={(e) => updateTaskDuration(task.id, e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") {
-                    const finalValue = parseFloat(e.target.value) || 0;
-                    setTasks(prev => {
-                      const updated = prev.map(t => t.id === task.id ? { ...t, duration: finalValue } : t);
-                      return syncTaskTimes(updated);
-                    });
-                    e.currentTarget.blur();
-                  }}}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const finalValue = parseFloat(e.target.value) || 0;
+                      setTasks(prev => {
+                        const updated = prev.map(t => t.id === task.id ? { ...t, duration: finalValue } : t);
+                        return syncTaskTimes(updated);
+                      });
+                      e.currentTarget.blur();
+                    }
+                  }}
                   placeholder={task.duration}
                   style={{ width: 30, fontSize: 13, color: "#e2e8f0", backgroundColor: "#111827", border: "1px solid #1e293b", borderRadius: 4, padding: "4px" }} />
                 <button onClick={() => deleteTask(task.id)}
@@ -445,9 +447,8 @@ export default function TaskScheduler() {
                     position: "absolute", left: dayOffset * DAY_WIDTH, width: DAY_WIDTH, flexShrink: 0, height: HEADER_HEIGHT,
                     display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                     fontSize: 12, fontWeight: 600, borderRight: "1px solid #1e293b",
-                    color: isToday ? "#60a5fa" : working ? "#cbd5e1" : "#94a3b8",
+                    color: isToday ? "#60a5fa" : working ? "#cbd5e1" : "#ff0000",
                     background: isToday ? "#1a2f4a" : working ? "transparent" : "#0f172a",
-                    opacity: working ? 1 : 0.75,
                     cursor: "pointer",
                     transition: "all 0.2s",
                   }}
@@ -462,7 +463,7 @@ export default function TaskScheduler() {
                     e.currentTarget.style.opacity = working ? "1" : "0.6";
                   }}
                 >
-                  <div style={{ fontSize: 10, opacity: 0.7 }}>{["日","月","火","水","木","金","土"][displayDate.getDay()]}</div>
+                  <div style={{ fontSize: 10, opacity: 0.7 }}>{["日", "月", "火", "水", "木", "金", "土"][displayDate.getDay()]}</div>
                   <div>{displayDate.getDate()}</div>
                   {!working && <div style={{ fontSize: 8, marginTop: 2, opacity: 0.8 }}>✕</div>}
                 </div>
@@ -481,9 +482,9 @@ export default function TaskScheduler() {
               timelineWidth={timelineWidth} DAY_WIDTH={DAY_WIDTH} />
 
             {tasks.map((task, rowIndex) => {
-              const color   = COLORS[task.colorIdx % COLORS.length];
+              const color = COLORS[task.colorIdx % COLORS.length];
               const isHover = hoveredId === task.id;
-              const isFrom  = connectingFrom === task.id;
+              const isFrom = connectingFrom === task.id;
               console.log(task);
 
               const todayOffset = Math.floor((new Date() - projectStartDate) / (1000 * 60 * 60 * 24));
@@ -565,7 +566,7 @@ export default function TaskScheduler() {
         </div>
       </div>
 
-      <p style={{ marginTop: 14, fontSize: 12, color: "#334155", textAlign: "center" }}>
+      <p style={{ marginTop: 14, fontSize: 12, color: "#bcb8d3", textAlign: "center" }}>
         🔗 接続モード：タスクを順にクリックで矢印を作成　／　矢印をクリックで削除　／　📅 日付をクリックで稼働日を設定　／　青縦線 = 本日
       </p>
     </div>
