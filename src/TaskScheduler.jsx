@@ -11,7 +11,7 @@ const COLORS = [
 
 const DAY_WIDTH = 40;
 const ROW_HEIGHT = 52;
-const HEADER_HEIGHT = 48;
+const HEADER_HEIGHT = 96;
 const LABEL_WIDTH = 250;
 const MIN_DAYS = 31;
 
@@ -20,18 +20,25 @@ function clamp(v, min, max) {
 }
 
 const initialTasks = [
-  { id: 1, name: "設計", start: 0, duration: 1, colorIdx: 0 },
-  { id: 2, name: "設計レビュー", start: 0, duration: 1, colorIdx: 1 },
-  { id: 3, name: "コーティング", start: 0, duration: 1, colorIdx: 2 },
-  { id: 4, name: "テスト", start: 0, duration: 1, colorIdx: 3 },
-  { id: 5, name: "コードレビュー", start: 0, duration: 1, colorIdx: 4 },
+  { id: 1, name: "設計1", start: 0, duration: 1, colorIdx: 0 },
+  { id: 2, name: "設計レビュー1", start: 0, duration: 1, colorIdx: 1 },
+  { id: 3, name: "コーディング1", start: 0, duration: 1, colorIdx: 2 },
+  { id: 4, name: "コードレビュー1", start: 0, duration: 1, colorIdx: 3 },
+  { id: 5, name: "テスト1", start: 0, duration: 1, colorIdx: 4 },
+  { id: 6, name: "リリース1", start: 0, duration: 1, colorIdx: 5 },
+  { id: 7, name: "設計2", start: 0, duration: 1, colorIdx: 0 },
+  { id: 8, name: "設計レビュー2", start: 0, duration: 1, colorIdx: 1 },
+  { id: 9, name: "コーディング2", start: 0, duration: 1, colorIdx: 2 },
+  { id: 10, name: "コードレビュー2", start: 0, duration: 1, colorIdx: 3 },
+  { id: 11, name: "テスト2", start: 0, duration: 1, colorIdx: 4 },
+  { id: 12, name: "リリース2", start: 0, duration: 1, colorIdx: 5 },
 ];
 
 const initialLinks = [
-  { id: "l1", fromId: 1, toId: 2 },
-  { id: "l2", fromId: 2, toId: 3 },
-  { id: "l3", fromId: 3, toId: 4 },
-  { id: "l4", fromId: 4, toId: 5 },
+  // { id: "l1", fromId: 1, toId: 2 },
+  // { id: "l2", fromId: 2, toId: 3 },
+  // { id: "l3", fromId: 3, toId: 4 },
+  // { id: "l4", fromId: 4, toId: 5 },
 ];
 
 let nextId = 6;
@@ -145,6 +152,27 @@ export default function TaskScheduler() {
     date.setDate(date.getDate() + dayOffset);
     return date;
   }, [projectStartDate]);
+
+  const months = useMemo(() => {
+    const m = [];
+    let currentMonth = null;
+    let start = 0;
+    for (let i = 0; i < daysInTimeline; i++) {
+      const date = getDisplayDay(i);
+      const month = date.getMonth() + 1;
+      if (currentMonth !== month) {
+        if (currentMonth !== null) {
+          m.push({ month: currentMonth, start, end: i - 1 });
+        }
+        currentMonth = month;
+        start = i;
+      }
+    }
+    if (currentMonth !== null) {
+      m.push({ month: currentMonth, start, end: daysInTimeline - 1 });
+    }
+    return m;
+  }, [daysInTimeline, getDisplayDay]);
 
   const formatDateString = (date) => {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -435,40 +463,59 @@ export default function TaskScheduler() {
 
           {/* Day header */}
           <div style={{ position: "relative", width: timelineWidth, height: HEADER_HEIGHT, background: "#0f1117", borderBottom: "1px solid #1e293b" }}>
-            {Array.from({ length: daysInTimeline }, (_, i) => i).map((dayOffset) => {
-              const displayDate = getDisplayDay(dayOffset);
-              const isToday = new Date().toDateString() === displayDate.toDateString();
-              const working = isWorkingDay(dayOffset);
-              return (
-                <div
-                  key={dayOffset}
-                  onClick={() => toggleWorkingDate(dayOffset)}
-                  style={{
-                    position: "absolute", left: dayOffset * DAY_WIDTH, width: DAY_WIDTH, flexShrink: 0, height: HEADER_HEIGHT,
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                    fontSize: 12, fontWeight: 600, borderRight: "1px solid #1e293b",
-                    color: isToday ? "#60a5fa" : working ? "#cbd5e1" : "#ff0000",
-                    background: isToday ? "#1a2f4a" : working ? "transparent" : "#0f172a",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isToday) {
-                      e.currentTarget.style.background = working ? "#1e2330" : "#1a1f2e";
-                      e.currentTarget.style.opacity = "0.8";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isToday ? "#1a2f4a" : working ? "transparent" : "#0a0d12";
-                    e.currentTarget.style.opacity = working ? "1" : "0.6";
-                  }}
-                >
-                  <div style={{ fontSize: 10, opacity: 0.7 }}>{["日", "月", "火", "水", "木", "金", "土"][displayDate.getDay()]}</div>
-                  <div>{displayDate.getDate()}</div>
-                  {!working && <div style={{ fontSize: 8, marginTop: 2, opacity: 0.8 }}>✕</div>}
-                </div>
-              );
-            })}
+            {/* Month header */}
+            <div style={{ position: "absolute", top: 0, width: timelineWidth, height: HEADER_HEIGHT / 2, background: "#0f1117", borderBottom: "1px solid #1e293b" }}>
+              {months.map(({ month, start, end }) => {
+                const width = (end - start + 1) * DAY_WIDTH;
+                return (
+                  <div key={month} style={{
+                    position: "absolute", left: start * DAY_WIDTH, width, height: HEADER_HEIGHT / 2,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 14, fontWeight: 600, color: "#cbd5e1",
+                    border: "1px solid #1e293b",
+                  }}>
+                    {month}月
+                  </div>
+                );
+              })}
+            </div>
+            {/* Day header */}
+            <div style={{ position: "absolute", top: HEADER_HEIGHT / 2, width: timelineWidth, height: HEADER_HEIGHT / 2, background: "#0f1117" }}>
+              {Array.from({ length: daysInTimeline }, (_, i) => i).map((dayOffset) => {
+                const displayDate = getDisplayDay(dayOffset);
+                const isToday = new Date().toDateString() === displayDate.toDateString();
+                const working = isWorkingDay(dayOffset);
+                return (
+                  <div
+                    key={dayOffset}
+                    onClick={() => toggleWorkingDate(dayOffset)}
+                    style={{
+                      position: "absolute", left: dayOffset * DAY_WIDTH, width: DAY_WIDTH, flexShrink: 0, height: HEADER_HEIGHT / 2,
+                      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                      fontSize: 12, fontWeight: 600, border: "1px solid #1e293b",
+                      color: isToday ? "#60a5fa" : working ? "#cbd5e1" : "#ff0000",
+                      background: isToday ? "#1a2f4a" : working ? "transparent" : "#0f172a",
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isToday) {
+                        e.currentTarget.style.background = working ? "#1e2330" : "#1a1f2e";
+                        e.currentTarget.style.opacity = "0.8";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = isToday ? "#1a2f4a" : working ? "transparent" : "#0a0d12";
+                      e.currentTarget.style.opacity = working ? "1" : "0.6";
+                    }}
+                  >
+                    <div style={{ fontSize: 10, opacity: 0.7 }}>{["日", "月", "火", "水", "木", "金", "土"][displayDate.getDay()]}</div>
+                    <div>{displayDate.getDate()}</div>
+                    {!working && <div style={{ fontSize: 8, marginTop: 2, opacity: 0.8 }}>✕</div>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Timeline rows */}
