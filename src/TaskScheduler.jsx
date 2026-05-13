@@ -135,6 +135,7 @@ export default function TaskScheduler() {
   const [connectingFrom, setConnectingFrom] = useState(null);
   const [mousePos, setMousePos] = useState(null);
   const [projectStartDate, setProjectStartDate] = useState(new Date(2026, 4, 1)); // 2026年5月1日
+  const [projectEndDate, setProjectEndDate] = useState(new Date(2026, 5, 30)); // 2026年6月30日
   const [nonWorkingDates, setNonWorkingDates] = useState(new Set()); // 稼働しない日付の集合（"YYYY-MM-DD"形式）
   const timelineAreaRef = useRef(null);
 
@@ -198,11 +199,11 @@ export default function TaskScheduler() {
     return currentDay;
   }, [isWorkingDay]);
 
-  // 営業日ベースでの表示位置を計算（開始位置）
-  const getWorkingDayStartPosition = useCallback((startDay) => {
-    let position = startDay;
+  // 営業日ベースでの表示位置を再計算（開始位置）
+  const getWorkingDayStartPosition = useCallback((preEndDay, startDay) => {
     // 最大365日先まで探して無限ループを防ぐ
-    while (position < startDay + 365 && !isWorkingDay(position)) {
+    let position = preEndDay;
+    while (position < preEndDay + 365 && !isWorkingDay(position)) {
       position++;
     }
     return position;
@@ -289,9 +290,10 @@ export default function TaskScheduler() {
 
   // 特定のタスクの所要時間を更新するための関数
   const updateTaskDuration = useCallback((id, newDuration) => {
+    const numDuration = Math.max(1, Math.min(365, Math.floor(parseFloat(newDuration) || 1)));
     setTasks(prev => prev.map((task) => {
       if (task.id === id) {
-        return { ...task, duration: newDuration };
+        return { ...task, duration: numDuration };
       }
       return task;
     }));
@@ -341,6 +343,11 @@ export default function TaskScheduler() {
     setTasks((prev) => syncTaskTimes(prev));
   }, [syncTaskTimes]);
 
+  // プロジェクト開始日が変更されたとき、接続されているタスクを調整
+  useEffect(() => {
+    setTasks((prev) => syncTaskTimes(prev));
+  }, [projectStartDate, syncTaskTimes]);
+
 
   return (
     <div
@@ -383,6 +390,20 @@ export default function TaskScheduler() {
             type="date"
             value={formatDateString(projectStartDate)}
             onChange={(e) => setProjectStartDate(new Date(e.target.value))}
+            style={{
+              background: "#1e2330", border: "1px solid #2d3748", borderRadius: 6,
+              padding: "4px 8px", color: "#e2e8f0", fontSize: 13, outline: "none", cursor: "pointer",
+            }}
+          />
+        </label>
+
+        {/* Project end date picker */}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#cbd5e1" }}>
+          📅 プロジェクト終了日:
+          <input
+            type="date"
+            value={formatDateString(projectEndDate)}
+            onChange={(e) => setProjectEndDate(new Date(e.target.value))}
             style={{
               background: "#1e2330", border: "1px solid #2d3748", borderRadius: 6,
               padding: "4px 8px", color: "#e2e8f0", fontSize: 13, outline: "none", cursor: "pointer",
@@ -436,7 +457,7 @@ export default function TaskScheduler() {
                 </span>
                 {/* Duration Time */}
                 <input key={task.id} value={task.duration}
-                  onChange={(e) => updateTaskDuration(task.id, e.target.value)}
+                  onChange={(e) => updateTaskDuration(task.id, parseFloat(e.target.value))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       const finalValue = parseFloat(e.target.value) || 0;
@@ -535,6 +556,7 @@ export default function TaskScheduler() {
               console.log(task);
 
               const todayOffset = Math.floor((new Date() - projectStartDate) / (1000 * 60 * 60 * 24));
+              const endDateOffset = Math.floor((projectEndDate - projectStartDate) / (1000 * 60 * 60 * 24));
 
               return (
                 <div key={task.id} style={{
@@ -553,6 +575,10 @@ export default function TaskScheduler() {
                   <div style={{
                     position: "absolute", left: todayOffset * DAY_WIDTH,
                     top: 0, bottom: 0, width: 2, background: "#60a5fa", opacity: 0.5, zIndex: 2,
+                  }} />
+                  <div style={{
+                    position: "absolute", left: endDateOffset * DAY_WIDTH,
+                    top: 0, bottom: 0, width: 2, background: "#ef4444", opacity: 0.5, zIndex: 2,
                   }} />
                   {/* Task bar */}
                   <div
@@ -614,7 +640,7 @@ export default function TaskScheduler() {
       </div>
 
       <p style={{ marginTop: 14, fontSize: 12, color: "#bcb8d3", textAlign: "center" }}>
-        🔗 接続モード：タスクを順にクリックで矢印を作成　／　矢印をクリックで削除　／　📅 日付をクリックで稼働日を設定　／　青縦線 = 本日
+        🔗 接続モード：タスクを順にクリックで矢印を作成　／　矢印をクリックで削除　／　📅 日付をクリックで稼働日を設定　／　青縦線 = 本日　／　赤縦線 = プロジェクト終了日
       </p>
     </div>
   );
