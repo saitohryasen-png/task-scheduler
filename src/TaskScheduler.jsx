@@ -42,7 +42,7 @@ const initialLinks = [
 ];
 
 let nextId = 6;
-let nextLinkId = 4;
+let nextLinkId = 5;
 
 // ── Arrow SVG Overlay ────────────────────────────────────────────────────────
 
@@ -210,12 +210,14 @@ export default function TaskScheduler() {
 
   // 営業日ベースでの表示幅を計算（表示は実働日数のみ）
   const getWorkingDaysWidth = (startDay, duration) => {
-    for (let i = startDay; i < (startDay + duration); i++) {
-      if (!isWorkingDay(i)) {
-        duration++;
-      }
+    let workingCount = 0;
+    let i = startDay;
+    while (workingCount < duration) {
+      if (isWorkingDay(i)) workingCount++;
+      i++;
+      if (i > startDay + 365) break;
     }
-    return Math.max(duration * DAY_WIDTH, DAY_WIDTH);
+    return Math.max((i - startDay) * DAY_WIDTH, DAY_WIDTH);
   };
 
   const toggleWorkingDate = (dayOffset) => {
@@ -299,7 +301,6 @@ export default function TaskScheduler() {
 
   // タスク開始時間を稼働日とリンクに合わせて同期する
   const syncTaskTimes = useCallback((currentTasks) => {
-    console.log('syncTaskTimes');
     let updated = currentTasks;
 
     for (let pass = 0; pass < updated.length; pass++) {
@@ -307,17 +308,22 @@ export default function TaskScheduler() {
       const snapshot = updated;
 
       const next = snapshot.map((task) => {
-        const ownStart = getWorkingDayStartPosition(task.start);
-        let targetStart = ownStart;
-
         const inboundLinks = links.filter((link) => link.toId === task.id);
-        for (const link of inboundLinks) {
-          const fromTask = snapshot.find((t) => t.id === link.fromId);
-          if (!fromTask) continue;
 
-          const predecessorStart = getWorkingDayStartPosition(fromTask.start);
-          const predecessorEnd = getTaskRealEndDay(predecessorStart, fromTask.duration);
-          targetStart = Math.max(targetStart, getWorkingDayStartPosition(predecessorEnd + 1));
+        let targetStart;
+        if (inboundLinks.length === 0) {
+          // 前任なし：現在位置を稼働日にスナップするだけ（手動配置を維持）
+          targetStart = getWorkingDayStartPosition(task.start);
+        } else {
+          // 前任あり：前任タスクの終了後を純粋に計算（前後どちらにも移動可能）
+          targetStart = 0;
+          for (const link of inboundLinks) {
+            const fromTask = snapshot.find((t) => t.id === link.fromId);
+            if (!fromTask) continue;
+            const predecessorStart = getWorkingDayStartPosition(fromTask.start);
+            const predecessorEnd = getTaskRealEndDay(predecessorStart, fromTask.duration);
+            targetStart = Math.max(targetStart, getWorkingDayStartPosition(predecessorEnd + 1));
+          }
         }
 
         if (targetStart !== task.start) {
@@ -341,6 +347,7 @@ export default function TaskScheduler() {
     setTasks((prev) => syncTaskTimes(prev));
   }, [syncTaskTimes]);
 
+  const todayOffset = Math.floor((new Date() - projectStartDate) / (1000 * 60 * 60 * 24));
 
   return (
     <div
@@ -382,7 +389,10 @@ export default function TaskScheduler() {
           <input
             type="date"
             value={formatDateString(projectStartDate)}
-            onChange={(e) => setProjectStartDate(new Date(e.target.value))}
+            onChange={(e) => {
+              const [y, m, d] = e.target.value.split("-").map(Number);
+              setProjectStartDate(new Date(y, m - 1, d));
+            }}
             style={{
               background: "#1e2330", border: "1px solid #2d3748", borderRadius: 6,
               padding: "4px 8px", color: "#e2e8f0", fontSize: 13, outline: "none", cursor: "pointer",
@@ -532,9 +542,6 @@ export default function TaskScheduler() {
               const color = COLORS[task.colorIdx % COLORS.length];
               const isHover = hoveredId === task.id;
               const isFrom = connectingFrom === task.id;
-              console.log(task);
-
-              const todayOffset = Math.floor((new Date() - projectStartDate) / (1000 * 60 * 60 * 24));
 
               return (
                 <div key={task.id} style={{
