@@ -41,8 +41,8 @@ const initialLinks = [
   // { id: "l4", fromId: 4, toId: 5 },
 ];
 
-let nextId = 6;
-let nextLinkId = 5;
+let nextId = initialTasks.reduce((max, t) => Math.max(max, t.id), 0) + 1;
+let nextLinkId = initialLinks.reduce((max, l) => Math.max(max, parseInt(l.id.replace("l", ""))), 0) + 1;
 
 // ── Arrow SVG Overlay ────────────────────────────────────────────────────────
 
@@ -129,6 +129,10 @@ export default function TaskScheduler() {
   const [tasks, setTasks] = useState(initialTasks);
   const [links, setLinks] = useState(initialLinks);
   const [newTaskName, setNewTaskName] = useState("");
+  const [editingNameId, setEditingNameId] = useState(null);
+  const [editingNameValue, setEditingNameValue] = useState("");
+  const [colorPickerId, setColorPickerId] = useState(null);
+  const [colorPickerPos, setColorPickerPos] = useState({ top: 0, left: 0 });
   const [dragging, setDragging] = useState(null);
   const [hoveredId, setHoveredId] = useState(null);
   const [mode, setMode] = useState("edit"); // "edit" | "connect"
@@ -209,19 +213,23 @@ export default function TaskScheduler() {
     return position;
   }, [isWorkingDay]);
 
-  // 営業日ベースでの表示幅を計算（表示は実働日数のみ）
+  // 営業日ベースでの表示幅を計算（表示位置と同じ稼働日スナップ後の位置から計算）
   const getWorkingDaysWidth = (startDay, duration) => {
+    const effectiveStart = getWorkingDayStartPosition(startDay);
     let workingCount = 0;
-    let i = startDay;
+    let i = effectiveStart;
     while (workingCount < duration) {
       if (isWorkingDay(i)) workingCount++;
       i++;
-      if (i > startDay + 365) break;
+      if (i > effectiveStart + 365) break;
     }
-    return Math.max((i - startDay) * DAY_WIDTH, DAY_WIDTH);
+    return Math.max((i - effectiveStart) * DAY_WIDTH, DAY_WIDTH);
   };
 
+  const lastToggledDayRef = useRef(null);
+
   const toggleWorkingDate = (dayOffset) => {
+    lastToggledDayRef.current = dayOffset;
     const dateStr = formatDateString(getDisplayDay(dayOffset));
     setNonWorkingDates(prev => {
       const newSet = new Set(prev);
@@ -247,60 +255,6 @@ export default function TaskScheduler() {
 
   const deleteLink = (lid) => setLinks((p) => p.filter((l) => l.id !== lid));
 
-  const onMouseDown = useCallback((e, id, type) => {
-    if (mode !== "edit") return;
-    e.preventDefault();
-    const task = tasks.find((t) => t.id === id);
-    setDragging({ id, type, startX: e.clientX, origStart: task.start, origDuration: task.duration });
-  }, [tasks, mode]);
-
-  const onMouseMove = useCallback((e) => {
-    if (dragging) {
-      const dD = (e.clientX - dragging.startX) / DAY_WIDTH;
-      setTasks((p) => p.map((t) => {
-        if (t.id !== dragging.id) return t;
-        if (dragging.type === "move")
-          return { ...t, start: snap(clamp(dragging.origStart + dD, 0, 365 - t.duration)) };
-        return { ...t, duration: snap(clamp(dragging.origDuration + dD, 1, 365 - t.start)) };
-      }));
-    }
-    if (connectingFrom && timelineAreaRef.current) {
-      const r = timelineAreaRef.current.getBoundingClientRect();
-      setMousePos({
-        x: e.clientX - r.left + timelineAreaRef.current.scrollLeft,
-        y: e.clientY - r.top - HEADER_HEIGHT,
-      });
-    }
-  }, [dragging, connectingFrom]);
-
-  const onMouseUp = useCallback(() => setDragging(null), []);
-
-  const cancelConnect = useCallback(() => { setConnectingFrom(null); setMousePos(null); }, []);
-
-  const onBarClick = useCallback((e, id) => {
-    if (mode !== "connect") return;
-    e.stopPropagation();
-    if (!connectingFrom) {
-      setConnectingFrom(id);
-    } else {
-      if (connectingFrom !== id && !links.some((l) => l.fromId === connectingFrom && l.toId === id)) {
-        setLinks((p) => [...p, { id: `l${nextLinkId++}`, fromId: connectingFrom, toId: id }]);
-      }
-      cancelConnect();
-    }
-  }, [mode, connectingFrom, links, cancelConnect]);
-
-  // 特定のタスクの所要時間を更新するための関数
-  const updateTaskDuration = useCallback((id, newDuration) => {
-    const numDuration = Math.max(1, Math.min(365, Math.floor(parseFloat(newDuration) || 1)));
-    setTasks(prev => prev.map((task) => {
-      if (task.id === id) {
-        return { ...task, duration: numDuration };
-      }
-      return task;
-    }));
-  }, []);
-
   // タスク開始時間を稼働日とリンクに合わせて同期する
   const syncTaskTimes = useCallback((currentTasks) => {
     let updated = currentTasks;
@@ -314,7 +268,7 @@ export default function TaskScheduler() {
 
         let targetStart;
         if (inboundLinks.length === 0) {
-          // 前任なし：現在位置を稼働日にスナップするだけ（手動配置を維持）
+          // 前任なし：現在位置を稼働日にスナップ（手動ドラッグ位置を維持）
           targetStart = getWorkingDayStartPosition(task.start);
         } else {
           // 前任あり：前任タスクの終了後を純粋に計算（前後どちらにも移動可能）
@@ -346,16 +300,176 @@ export default function TaskScheduler() {
   }, [getWorkingDayStartPosition, getTaskRealEndDay, links]);
 
   useEffect(() => {
-    setTasks((prev) => syncTaskTimes(prev));
-  }, [syncTaskTimes]);
+    const fromDay = lastToggledDayRef.current;
+    lastToggledDayRef.current = null;
+
+    if (fromDay !== null) {
+      // 稼働日トグル：期間が fromDay 以降にかかる全タスクとその子孫のみ更新
+      setTasks((prev) => {
+        // Step1: 終了日が fromDay 以降のタスク（ルート・非ルート問わず）と子孫を収集
+        const affected = new Set();
+        prev.forEach((t) => {
+          const effStart = getWorkingDayStartPosition(t.start);
+          const effEnd = getTaskRealEndDay(effStart, t.duration);
+          if (effEnd >= fromDay) affected.add(t.id);
+        });
+        const queue = [...affected];
+        while (queue.length > 0) {
+          const id = queue.shift();
+          links.filter((l) => l.fromId === id).forEach((l) => {
+            if (!affected.has(l.toId)) { affected.add(l.toId); queue.push(l.toId); }
+          });
+        }
+
+        // Step2: affected のタスクのみ再計算（ルート→スナップ、非ルート→前任から計算）
+        let updated = prev;
+        for (let pass = 0; pass < updated.length; pass++) {
+          let changed = false;
+          const snapshot = updated;
+          const next = snapshot.map((task) => {
+            if (!affected.has(task.id)) return task;
+            const inboundLinks = links.filter((l) => l.toId === task.id);
+            let targetStart;
+            if (inboundLinks.length === 0) {
+              targetStart = getWorkingDayStartPosition(task.start);
+            } else {
+              targetStart = 0;
+              inboundLinks.forEach((link) => {
+                const fromTask = snapshot.find((t) => t.id === link.fromId);
+                if (!fromTask) return;
+                const pStart = getWorkingDayStartPosition(fromTask.start);
+                const pEnd = getTaskRealEndDay(pStart, fromTask.duration);
+                targetStart = Math.max(targetStart, getWorkingDayStartPosition(pEnd + 1));
+              });
+            }
+            if (targetStart !== task.start) { changed = true; return { ...task, start: targetStart }; }
+            return task;
+          });
+          if (!changed) return updated;
+          updated = next;
+        }
+        return updated;
+      });
+    } else {
+      // リンク変更・プロジェクト開始日変更など：全タスク再計算
+      setTasks((prev) => syncTaskTimes(prev));
+    }
+  }, [syncTaskTimes, links, getWorkingDayStartPosition, getTaskRealEndDay]);
+
+  useEffect(() => {
+    console.log("tasks updated:", tasks);
+  }, [tasks]);
+
+  const onMouseDown = useCallback((e, id, type) => {
+    if (mode !== "edit") return;
+    e.preventDefault();
+    const task = tasks.find((t) => t.id === id);
+    setDragging({ id, type, startX: e.clientX, origStart: task.start, origDuration: task.duration });
+  }, [tasks, mode]);
+
+  const onMouseMove = useCallback((e) => {
+    if (dragging) {
+      const dD = (e.clientX - dragging.startX) / DAY_WIDTH;
+      setTasks((p) => p.map((t) => {
+        if (t.id !== dragging.id) return t;
+        if (dragging.type === "move")
+          return { ...t, start: snap(clamp(dragging.origStart + dD, 0, 365 - t.duration)) };
+        return { ...t, duration: snap(clamp(dragging.origDuration + dD, 1, 365 - t.start)) };
+      }));
+    }
+    if (connectingFrom && timelineAreaRef.current) {
+      const r = timelineAreaRef.current.getBoundingClientRect();
+      setMousePos({
+        x: e.clientX - r.left + timelineAreaRef.current.scrollLeft,
+        y: e.clientY - r.top - HEADER_HEIGHT,
+      });
+    }
+  }, [dragging, connectingFrom]);
+
+  // anchorId のタスクを固定し、その子孫タスクのみをカスケードする
+  const cascadeFromTask = useCallback((currentTasks, anchorId) => {
+    // anchorId から辿れる子孫タスクIDを収集
+    const descendants = new Set();
+    const queue = [anchorId];
+    while (queue.length > 0) {
+      const id = queue.shift();
+      links.filter((l) => l.fromId === id).forEach((l) => {
+        if (!descendants.has(l.toId)) {
+          descendants.add(l.toId);
+          queue.push(l.toId);
+        }
+      });
+    }
+
+    let updated = currentTasks;
+    for (let pass = 0; pass < updated.length; pass++) {
+      let changed = false;
+      const snapshot = updated;
+      const next = snapshot.map((task) => {
+        if (!descendants.has(task.id)) return task; // 子孫以外は触らない
+        let targetStart = 0;
+        links.filter((l) => l.toId === task.id).forEach((link) => {
+          const fromTask = snapshot.find((t) => t.id === link.fromId);
+          if (!fromTask) return;
+          const predecessorStart = getWorkingDayStartPosition(fromTask.start);
+          const predecessorEnd = getTaskRealEndDay(predecessorStart, fromTask.duration);
+          targetStart = Math.max(targetStart, getWorkingDayStartPosition(predecessorEnd + 1));
+        });
+        if (targetStart !== task.start) {
+          changed = true;
+          return { ...task, start: targetStart };
+        }
+        return task;
+      });
+      if (!changed) return updated;
+      updated = next;
+    }
+    return updated;
+  }, [links, getWorkingDayStartPosition, getTaskRealEndDay]);
+
+  const onMouseUp = useCallback(() => {
+    if (dragging) {
+      setTasks((prev) => cascadeFromTask(prev, dragging.id));
+    }
+    setDragging(null);
+  }, [dragging, cascadeFromTask]);
+
+  const cancelConnect = useCallback(() => { setConnectingFrom(null); setMousePos(null); }, []);
+
+  const onBarClick = useCallback((e, id) => {
+    if (mode !== "connect") return;
+    e.stopPropagation();
+    if (!connectingFrom) {
+      setConnectingFrom(id);
+    } else {
+      if (connectingFrom !== id && !links.some((l) => l.fromId === connectingFrom && l.toId === id)) {
+        setLinks((p) => [...p, { id: `l${nextLinkId++}`, fromId: connectingFrom, toId: id }]);
+      }
+      cancelConnect();
+    }
+  }, [mode, connectingFrom, links, cancelConnect]);
+
 
   const todayOffset = Math.floor((new Date() - projectStartDate) / (1000 * 60 * 60 * 24));
   const endDateOffset = Math.floor((projectEndDate - projectStartDate) / (1000 * 60 * 60 * 24));
 
-  // プロジェクト開始日が変更されたとき、接続されているタスクを調整
+  // 常に最新の syncTaskTimes を ref で保持（stale closure 回避）
+  const syncTaskTimesRef = useRef(syncTaskTimes);
+  useEffect(() => { syncTaskTimesRef.current = syncTaskTimes; });
+
+  // プロジェクト開始日変更時のみ：ルートタスクをday0にリセットしてカスケード
+  // syncTaskTimes を deps に含めず ref 経由で呼ぶことで、
+  // nonWorkingDates 変更時にこの effect が誤って発火しないようにする
   useEffect(() => {
-    setTasks((prev) => syncTaskTimes(prev));
-  }, [projectStartDate, syncTaskTimes]);
+    setTasks((prev) => {
+      const reset = prev.map((task) => {
+        const isRoot = !links.some((l) => l.toId === task.id);
+        return isRoot ? { ...task, start: 0 } : task;
+      });
+      return syncTaskTimesRef.current(reset);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectStartDate, links]);
 
   return (
     <div
@@ -448,6 +562,35 @@ export default function TaskScheduler() {
       {connectingFrom && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1 }} onClick={cancelConnect} />
       )}
+      {colorPickerId !== null && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 999 }} onClick={() => setColorPickerId(null)} />
+          <div style={{
+            position: "fixed", top: colorPickerPos.top, left: colorPickerPos.left,
+            zIndex: 1000, background: "#1e2330", border: "1px solid #2d3748",
+            borderRadius: 8, padding: 6, display: "flex", gap: 4,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+          }}>
+            {COLORS.map((c, idx) => {
+              const target = tasks.find((t) => t.id === colorPickerId);
+              return (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    setTasks((p) => p.map((t) => t.id === colorPickerId ? { ...t, colorIdx: idx } : t));
+                    setColorPickerId(null);
+                  }}
+                  style={{
+                    width: 20, height: 20, borderRadius: "50%", background: c.bg,
+                    border: target && idx === target.colorIdx ? "2px solid #fff" : "2px solid transparent",
+                    cursor: "pointer", padding: 0,
+                  }}
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Timeline */}
       <div style={{ background: "#151922", borderRadius: 14, border: "1px solid #1e2330", overflow: "hidden", display: "flex" }}>
@@ -462,23 +605,52 @@ export default function TaskScheduler() {
                 height: ROW_HEIGHT, display: "flex", alignItems: "center",
                 gap: 8, padding: "0 12px", borderBottom: "1px solid #1e293b",
               }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: color.bg, flexShrink: 0 }} />
-                <span style={{ fontSize: 13, color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "left" }}>
-                  {task.name}
-                </span>
-                {/* Duration Time */}
-                <input key={task.id} value={task.duration}
-                  onChange={(e) => updateTaskDuration(task.id, parseFloat(e.target.value))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const finalValue = parseFloat(e.target.value) || 0;
-                      setTasks(prev => {
-                        const updated = prev.map(t => t.id === task.id ? { ...t, duration: finalValue } : t);
-                        return syncTaskTimes(updated);
-                      });
-                      e.currentTarget.blur();
+                <button
+                  onClick={(e) => {
+                    if (colorPickerId === task.id) {
+                      setColorPickerId(null);
+                    } else {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setColorPickerPos({ top: rect.bottom + 4, left: rect.left });
+                      setColorPickerId(task.id);
                     }
                   }}
+                  style={{ width: 14, height: 14, borderRadius: "50%", background: color.bg, border: "none", cursor: "pointer", padding: 0, flexShrink: 0 }}
+                />
+                {editingNameId === task.id ? (
+                  <input
+                    autoFocus
+                    value={editingNameValue}
+                    onChange={(e) => setEditingNameValue(e.target.value)}
+                    onBlur={() => {
+                      const name = editingNameValue.trim();
+                      if (name) setTasks((p) => p.map((t) => t.id === task.id ? { ...t, name } : t));
+                      setEditingNameId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      if (e.key === "Escape") { setEditingNameId(null); }
+                    }}
+                    style={{ flex: 1, fontSize: 13, color: "#e2e8f0", background: "#1e2a3a", border: "1px solid #3b82f6", borderRadius: 4, padding: "2px 6px", outline: "none" }}
+                  />
+                ) : (
+                  <span
+                    onDoubleClick={() => { setEditingNameId(task.id); setEditingNameValue(task.name); }}
+                    title="ダブルクリックで編集"
+                    style={{ fontSize: 13, color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "left", cursor: "text" }}>
+                    {task.name}
+                  </span>
+                )}
+                {/* Duration */}
+                <input value={task.duration}
+                  onChange={(e) => {
+                    const val = Math.max(1, Math.min(365, Math.floor(parseFloat(e.target.value) || 1)));
+                    setTasks(prev => {
+                      const updated = prev.map(t => t.id === task.id ? { ...t, duration: val } : t);
+                      return cascadeFromTask(updated, task.id);
+                    });
+                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
                   placeholder={task.duration}
                   style={{ width: 30, fontSize: 13, color: "#e2e8f0", backgroundColor: "#111827", border: "1px solid #1e293b", borderRadius: 4, padding: "4px" }} />
                 <button onClick={() => deleteTask(task.id)}
@@ -525,25 +697,15 @@ export default function TaskScheduler() {
                       position: "absolute", left: dayOffset * DAY_WIDTH, width: DAY_WIDTH, flexShrink: 0, height: HEADER_HEIGHT / 2,
                       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                       fontSize: 12, fontWeight: 600, border: "1px solid #1e293b",
-                      color: isToday ? "#60a5fa" : working ? "#cbd5e1" : "#ff0000",
-                      background: isToday ? "#1a2f4a" : working ? "transparent" : "#0f172a",
+                      color: isToday ? "#ffffff" : working ? "#cbd5e1" : "#f87171",
+                      background: isToday ? "#2563eb" : "transparent",
+                      opacity: working ? 1 : 0.7,
                       cursor: "pointer",
-                      transition: "all 0.2s",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isToday) {
-                        e.currentTarget.style.background = working ? "#1e2330" : "#1a1f2e";
-                        e.currentTarget.style.opacity = "0.8";
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = isToday ? "#1a2f4a" : working ? "transparent" : "#0a0d12";
-                      e.currentTarget.style.opacity = working ? "1" : "0.6";
                     }}
                   >
-                    <div style={{ fontSize: 10, opacity: 0.7 }}>{["日", "月", "火", "水", "木", "金", "土"][displayDate.getDay()]}</div>
+                    <div style={{ fontSize: 10 }}>{["日", "月", "火", "水", "木", "金", "土"][displayDate.getDay()]}</div>
                     <div>{displayDate.getDate()}</div>
-                    {!working && <div style={{ fontSize: 8, marginTop: 2, opacity: 0.8 }}>✕</div>}
+                    {!working && <div style={{ fontSize: 8, marginTop: 2 }}>✕</div>}
                   </div>
                 );
               })}
