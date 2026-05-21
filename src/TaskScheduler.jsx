@@ -12,7 +12,7 @@ const COLORS = [
 const DAY_WIDTH = 40;
 const ROW_HEIGHT = 52;
 const HEADER_HEIGHT = 96;
-const DEFAULT_LABEL_WIDTH = 250;
+const DEFAULT_LABEL_WIDTH = 350;
 const MIN_DAYS = 31;
 
 function clamp(v, min, max) {
@@ -20,18 +20,18 @@ function clamp(v, min, max) {
 }
 
 const initialTasks = [
-  { id: 1, name: "設計1", start: 0, duration: 1, colorIdx: 0 },
-  { id: 2, name: "設計レビュー1", start: 0, duration: 1, colorIdx: 1 },
-  { id: 3, name: "コーディング1", start: 0, duration: 1, colorIdx: 2 },
-  { id: 4, name: "コードレビュー1", start: 0, duration: 1, colorIdx: 3 },
-  { id: 5, name: "テスト1", start: 0, duration: 1, colorIdx: 4 },
-  { id: 6, name: "リリース1", start: 0, duration: 1, colorIdx: 5 },
-  { id: 7, name: "設計2", start: 0, duration: 1, colorIdx: 0 },
-  { id: 8, name: "設計レビュー2", start: 0, duration: 1, colorIdx: 1 },
-  { id: 9, name: "コーディング2", start: 0, duration: 1, colorIdx: 2 },
-  { id: 10, name: "コードレビュー2", start: 0, duration: 1, colorIdx: 3 },
-  { id: 11, name: "テスト2", start: 0, duration: 1, colorIdx: 4 },
-  { id: 12, name: "リリース2", start: 0, duration: 1, colorIdx: 5 },
+  { id: 1, name: "設計1", start: 0, duration: 1, colorIdx: 0, progress: 0 },
+  { id: 2, name: "設計レビュー1", start: 0, duration: 1, colorIdx: 1, progress: 0 },
+  { id: 3, name: "コーディング1", start: 0, duration: 1, colorIdx: 2, progress: 0 },
+  { id: 4, name: "コードレビュー1", start: 0, duration: 1, colorIdx: 3, progress: 0 },
+  { id: 5, name: "テスト1", start: 0, duration: 1, colorIdx: 4, progress: 0 },
+  { id: 6, name: "リリース1", start: 0, duration: 1, colorIdx: 5, progress: 0 },
+  { id: 7, name: "設計2", start: 0, duration: 1, colorIdx: 0, progress: 0 },
+  { id: 8, name: "設計レビュー2", start: 0, duration: 1, colorIdx: 1, progress: 0 },
+  { id: 9, name: "コーディング2", start: 0, duration: 1, colorIdx: 2, progress: 0 },
+  { id: 10, name: "コードレビュー2", start: 0, duration: 1, colorIdx: 3, progress: 0 },
+  { id: 11, name: "テスト2", start: 0, duration: 1, colorIdx: 4, progress: 0 },
+  { id: 12, name: "リリース2", start: 0, duration: 1, colorIdx: 5, progress: 0 },
 ];
 
 const initialLinks = [
@@ -247,7 +247,7 @@ export default function TaskScheduler() {
 
   const addTask = () => {
     const name = newTaskName.trim() || `タスク ${nextId}`;
-    setTasks((p) => [...p, { id: nextId++, name, start: 0, duration: 1, colorIdx: Math.floor(Math.random() * COLORS.length) }]);
+    setTasks((p) => [...p, { id: nextId++, name, start: 0, duration: 1, colorIdx: Math.floor(Math.random() * COLORS.length), progress: 0 }]);
     setNewTaskName("");
   };
 
@@ -708,6 +708,20 @@ export default function TaskScheduler() {
                   onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
                   placeholder={task.duration}
                   style={{ width: 30, fontSize: 13, color: "#e2e8f0", backgroundColor: "#111827", border: "1px solid #1e293b", borderRadius: 4, padding: "4px" }} />
+                {/* Progress */}
+                <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                  <input
+                    type="number" min="0" max="100"
+                    value={task.progress ?? 0}
+                    onChange={(e) => {
+                      const val = Math.max(0, Math.min(100, parseInt(e.target.value) || 0));
+                      setTasks((p) => p.map((t) => t.id === task.id ? { ...t, progress: val } : t));
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                    style={{ width: 36, fontSize: 12, color: "#e2e8f0", backgroundColor: "#111827", border: "1px solid #1e293b", borderRadius: 4, padding: "2px 4px" }}
+                  />
+                  <span style={{ fontSize: 11, color: "#64748b" }}>%</span>
+                </div>
                 <button onClick={() => deleteTask(task.id)}
                   style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 14, padding: 2, flexShrink: 0 }}>
                   ×
@@ -828,9 +842,18 @@ export default function TaskScheduler() {
                       zIndex: 5,
                     }}
                   >
+                    {/* Progress fill */}
+                    <div style={{
+                      position: "absolute", left: 0, top: 0, bottom: 0,
+                      width: `${task.progress ?? 0}%`,
+                      background: "rgba(0,0,0,0.25)",
+                      borderRadius: "6px 0 0 6px",
+                      pointerEvents: "none",
+                    }} />
                     <span style={{
                       padding: "0 10px", fontSize: 12, fontWeight: 600, color: color.text,
                       whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1,
+                      position: "relative",
                     }}>
                       {task.name}
                       <span style={{ opacity: 0.7, fontWeight: 400, marginLeft: 6 }}>
@@ -850,6 +873,18 @@ export default function TaskScheduler() {
                       </div>
                     )}
                   </div>
+                  {/* Progress label to the right of the bar */}
+                  {(task.progress ?? 0) > 0 && (
+                    <div style={{
+                      position: "absolute",
+                      left: getWorkingDayStartPosition(task.start) * DAY_WIDTH + getWorkingDaysWidth(task.start, task.duration) + 4,
+                      top: "50%", transform: "translateY(-50%)",
+                      fontSize: 11, fontWeight: 700, color: "#ffffff", whiteSpace: "nowrap", pointerEvents: "none",
+                      zIndex: 6,
+                    }}>
+                      {task.progress}%
+                    </div>
+                  )}
                 </div>
               );
             })}
