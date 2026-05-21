@@ -12,7 +12,7 @@ const COLORS = [
 const DAY_WIDTH = 40;
 const ROW_HEIGHT = 52;
 const HEADER_HEIGHT = 96;
-const LABEL_WIDTH = 250;
+const DEFAULT_LABEL_WIDTH = 250;
 const MIN_DAYS = 31;
 
 function clamp(v, min, max) {
@@ -133,6 +133,9 @@ export default function TaskScheduler() {
   const [editingNameValue, setEditingNameValue] = useState("");
   const [colorPickerId, setColorPickerId] = useState(null);
   const [colorPickerPos, setColorPickerPos] = useState({ top: 0, left: 0 });
+  const [rowDragging, setRowDragging] = useState(null); // { id, overIndex }
+  const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
+  const resizingRef = useRef(null);
   const [dragging, setDragging] = useState(null);
   const [hoveredId, setHoveredId] = useState(null);
   const [mode, setMode] = useState("edit"); // "edit" | "connect"
@@ -368,6 +371,12 @@ export default function TaskScheduler() {
   }, [tasks, mode]);
 
   const onMouseMove = useCallback((e) => {
+    if (resizingRef.current) {
+      const dx = e.clientX - resizingRef.current.startX;
+      const newWidth = Math.max(120, Math.min(500, resizingRef.current.startWidth + dx));
+      setLabelWidth(newWidth);
+      return;
+    }
     if (dragging) {
       const dD = (e.clientX - dragging.startX) / DAY_WIDTH;
       setTasks((p) => p.map((t) => {
@@ -427,12 +436,28 @@ export default function TaskScheduler() {
     return updated;
   }, [links, getWorkingDayStartPosition, getTaskRealEndDay]);
 
+  const commitRowDrag = useCallback(() => {
+    if (!rowDragging) return;
+    const { id, overIndex } = rowDragging;
+    setTasks((prev) => {
+      const fromIndex = prev.findIndex((t) => t.id === id);
+      if (fromIndex === -1 || fromIndex === overIndex) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(overIndex, 0, moved);
+      return next;
+    });
+    setRowDragging(null);
+  }, [rowDragging]);
+
   const onMouseUp = useCallback(() => {
+    if (resizingRef.current) { resizingRef.current = null; return; }
+    if (rowDragging) { commitRowDrag(); return; }
     if (dragging) {
       setTasks((prev) => cascadeFromTask(prev, dragging.id));
     }
     setDragging(null);
-  }, [dragging, cascadeFromTask]);
+  }, [dragging, cascadeFromTask, rowDragging, commitRowDrag]);
 
   const cancelConnect = useCallback(() => { setConnectingFrom(null); setMousePos(null); }, []);
 
@@ -596,15 +621,45 @@ export default function TaskScheduler() {
       <div style={{ background: "#151922", borderRadius: 14, border: "1px solid #1e2330", overflow: "hidden", display: "flex" }}>
 
         {/* Fixed left column: header spacer + task labels */}
-        <div style={{ width: LABEL_WIDTH, flexShrink: 0, background: "#0f1117", zIndex: 10 }}>
+        <div style={{ width: labelWidth, flexShrink: 0, background: "#0f1117", zIndex: 10, position: "relative" }}>
+          {/* Resize handle */}
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault();
+              resizingRef.current = { startX: e.clientX, startWidth: labelWidth };
+            }}
+            style={{
+              position: "absolute", top: 0, right: 0, width: 4, height: "100%",
+              cursor: "col-resize", zIndex: 20,
+              background: "transparent",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#3b82f6"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          />
           <div style={{ height: HEADER_HEIGHT, borderBottom: "1px solid #1e293b" }} />
-          {tasks.map((task) => {
+          {tasks.map((task, rowIndex) => {
             const color = COLORS[task.colorIdx % COLORS.length];
+            const isDragOver = rowDragging && rowDragging.overIndex === rowIndex && rowDragging.id !== task.id;
+            const isDraggingThis = rowDragging?.id === task.id;
             return (
-              <div key={task.id} style={{
-                height: ROW_HEIGHT, display: "flex", alignItems: "center",
-                gap: 8, padding: "0 12px", borderBottom: "1px solid #1e293b",
-              }}>
+              <div
+                key={task.id}
+                onMouseEnter={() => { if (rowDragging) setRowDragging((p) => ({ ...p, overIndex: rowIndex })); }}
+                style={{
+                  height: ROW_HEIGHT, display: "flex", alignItems: "center",
+                  gap: 8, padding: "0 12px", borderBottom: "1px solid #1e293b",
+                  opacity: isDraggingThis ? 0.4 : 1,
+                  borderTop: isDragOver ? "2px solid #3b82f6" : "2px solid transparent",
+                  boxSizing: "border-box",
+                }}>
+                {/* Drag handle */}
+                <span
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    setRowDragging({ id: task.id, overIndex: rowIndex });
+                  }}
+                  style={{ fontSize: 14, color: "#475569", cursor: "grab", flexShrink: 0, lineHeight: 1, userSelect: "none" }}
+                >⠿</span>
                 <button
                   onClick={(e) => {
                     if (colorPickerId === task.id) {
