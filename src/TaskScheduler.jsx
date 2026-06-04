@@ -136,6 +136,7 @@ export default function TaskScheduler() {
   const [rowDragging, setRowDragging] = useState(null); // { id, overIndex }
   const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
   const resizingRef = useRef(null);
+  const lastLinkChangeRef = useRef(null); // { toId } — リンク追加・削除時のターゲット
   const [dragging, setDragging] = useState(null);
   const [hoveredId, setHoveredId] = useState(null);
   const [mode, setMode] = useState("edit"); // "edit" | "connect"
@@ -256,7 +257,11 @@ export default function TaskScheduler() {
     setLinks((p) => p.filter((l) => l.fromId !== id && l.toId !== id));
   };
 
-  const deleteLink = (lid) => setLinks((p) => p.filter((l) => l.id !== lid));
+  const deleteLink = (lid) => {
+    const link = links.find((l) => l.id === lid);
+    if (link) lastLinkChangeRef.current = { toId: link.toId };
+    setLinks((p) => p.filter((l) => l.id !== lid));
+  };
 
   // タスク開始時間を稼働日とリンクに合わせて同期する
   const syncTaskTimes = useCallback((currentTasks) => {
@@ -353,8 +358,45 @@ export default function TaskScheduler() {
         }
         return updated;
       });
+    } else if (lastLinkChangeRef.current !== null) {
+      // リンク追加・削除：toId タスクとその子孫のみ再計算
+      const { toId } = lastLinkChangeRef.current;
+      lastLinkChangeRef.current = null;
+      setTasks((prev) => {
+        const affected = new Set([toId]);
+        const queue = [toId];
+        while (queue.length > 0) {
+          const id = queue.shift();
+          links.filter((l) => l.fromId === id).forEach((l) => {
+            if (!affected.has(l.toId)) { affected.add(l.toId); queue.push(l.toId); }
+          });
+        }
+        let updated = prev;
+        for (let pass = 0; pass < updated.length; pass++) {
+          let changed = false;
+          const snapshot = updated;
+          const next = snapshot.map((task) => {
+            if (!affected.has(task.id)) return task;
+            const inboundLinks = links.filter((l) => l.toId === task.id);
+            if (inboundLinks.length === 0) return task;
+            let targetStart = 0;
+            inboundLinks.forEach((link) => {
+              const fromTask = snapshot.find((t) => t.id === link.fromId);
+              if (!fromTask) return;
+              const pStart = getWorkingDayStartPosition(fromTask.start);
+              const pEnd = getTaskRealEndDay(pStart, fromTask.duration);
+              targetStart = Math.max(targetStart, getWorkingDayStartPosition(pEnd + 1));
+            });
+            if (targetStart !== task.start) { changed = true; return { ...task, start: targetStart }; }
+            return task;
+          });
+          if (!changed) return updated;
+          updated = next;
+        }
+        return updated;
+      });
     } else {
-      // リンク変更・プロジェクト開始日変更など：全タスク再計算
+      // プロジェクト開始日変更など：全タスク再計算
       setTasks((prev) => syncTaskTimes(prev));
     }
   }, [syncTaskTimes, links, getWorkingDayStartPosition, getTaskRealEndDay]);
@@ -468,6 +510,7 @@ export default function TaskScheduler() {
       setConnectingFrom(id);
     } else {
       if (connectingFrom !== id && !links.some((l) => l.fromId === connectingFrom && l.toId === id)) {
+        lastLinkChangeRef.current = { toId: id };
         setLinks((p) => [...p, { id: `l${nextLinkId++}`, fromId: connectingFrom, toId: id }]);
       }
       cancelConnect();
@@ -478,23 +521,25 @@ export default function TaskScheduler() {
   const todayOffset = Math.floor((new Date() - projectStartDate) / (1000 * 60 * 60 * 24));
   const endDateOffset = Math.floor((projectEndDate - projectStartDate) / (1000 * 60 * 60 * 24));
 
-  // 常に最新の syncTaskTimes を ref で保持（stale closure 回避）
+  // 常に最新の syncTaskTimes と links を ref で保持（stale closure 回避）
   const syncTaskTimesRef = useRef(syncTaskTimes);
+  const linksRef = useRef(links);
   useEffect(() => { syncTaskTimesRef.current = syncTaskTimes; });
+  useEffect(() => { linksRef.current = links; });
 
   // プロジェクト開始日変更時のみ：ルートタスクをday0にリセットしてカスケード
-  // syncTaskTimes を deps に含めず ref 経由で呼ぶことで、
-  // nonWorkingDates 変更時にこの effect が誤って発火しないようにする
+  // links・syncTaskTimes を deps に含めず ref 経由で呼ぶことで、
+  // リンク変更・nonWorkingDates 変更時にこの effect が誤って発火しないようにする
   useEffect(() => {
     setTasks((prev) => {
       const reset = prev.map((task) => {
-        const isRoot = !links.some((l) => l.toId === task.id);
+        const isRoot = !linksRef.current.some((l) => l.toId === task.id);
         return isRoot ? { ...task, start: 0 } : task;
       });
       return syncTaskTimesRef.current(reset);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectStartDate, links]);
+  }, [projectStartDate]);
 
   return (
     <div
