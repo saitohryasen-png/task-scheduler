@@ -123,11 +123,47 @@ function ArrowLayer({ tasks, links, onDeleteLink, connectingFrom, mousePos, isWo
   );
 }
 
+// ── LocalStorage helpers ──────────────────────────────────────────────────────
+
+const LS_KEY = "task-scheduler-v1";
+
+function loadStorage() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return {
+      tasks: data.tasks,
+      links: data.links,
+      projectStartDate: new Date(data.projectStartDate),
+      projectEndDate: new Date(data.projectEndDate),
+      nonWorkingDates: new Set(data.nonWorkingDates ?? []),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 export default function TaskScheduler() {
-  const [tasks, setTasks] = useState(initialTasks);
-  const [links, setLinks] = useState(initialLinks);
+  const saved = useMemo(() => {
+    const data = loadStorage();
+    if (data) {
+      // ロードしたデータの最大IDに合わせてカウンターを更新（ID重複を防ぐ）
+      const maxTaskId = data.tasks.reduce((max, t) => Math.max(max, t.id), 0);
+      if (maxTaskId >= nextId) nextId = maxTaskId + 1;
+      const maxLinkId = data.links.reduce((max, l) => {
+        const n = parseInt(l.id.replace("l", "")) || 0;
+        return Math.max(max, n);
+      }, 0);
+      if (maxLinkId >= nextLinkId) nextLinkId = maxLinkId + 1;
+    }
+    return data;
+  }, []);
+
+  const [tasks, setTasks] = useState(saved?.tasks ?? initialTasks);
+  const [links, setLinks] = useState(saved?.links ?? initialLinks);
   const [newTaskName, setNewTaskName] = useState("");
   const [editingNameId, setEditingNameId] = useState(null);
   const [editingNameValue, setEditingNameValue] = useState("");
@@ -142,10 +178,51 @@ export default function TaskScheduler() {
   const [mode, setMode] = useState("edit"); // "edit" | "connect"
   const [connectingFrom, setConnectingFrom] = useState(null);
   const [mousePos, setMousePos] = useState(null);
-  const [projectStartDate, setProjectStartDate] = useState(new Date(2026, 4, 1)); // 2026年5月1日
-  const [projectEndDate, setProjectEndDate] = useState(new Date(2026, 5, 30)); // 2026年6月30日
-  const [nonWorkingDates, setNonWorkingDates] = useState(new Set()); // 稼働しない日付の集合（"YYYY-MM-DD"形式）
+  const [projectStartDate, setProjectStartDate] = useState(saved?.projectStartDate ?? new Date(2026, 4, 1));
+  const [projectEndDate, setProjectEndDate] = useState(saved?.projectEndDate ?? new Date(2026, 5, 30));
+  const [nonWorkingDates, setNonWorkingDates] = useState(saved?.nonWorkingDates ?? new Set());
   const timelineAreaRef = useRef(null);
+  const importInputRef = useRef(null);
+  const isImportingRef = useRef(false);
+  const deletingTaskRef = useRef(false);
+
+  const handleExport = () => {
+    const data = {
+      tasks,
+      links,
+      projectStartDate: projectStartDate.toISOString(),
+      projectEndDate: projectEndDate.toISOString(),
+      nonWorkingDates: [...nonWorkingDates],
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `task-scheduler-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        isImportingRef.current = true;
+        if (data.tasks) setTasks(data.tasks);
+        if (data.links) setLinks(data.links);
+        if (data.projectStartDate) setProjectStartDate(new Date(data.projectStartDate));
+        if (data.projectEndDate) setProjectEndDate(new Date(data.projectEndDate));
+        if (data.nonWorkingDates) setNonWorkingDates(new Set(data.nonWorkingDates));
+      } catch {
+        alert("ファイルの読み込みに失敗しました。");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   const daysInTimeline = useMemo(() => {
     const maxEnd = tasks.reduce((max, t) => Math.max(max, t.start + t.duration), 0);
@@ -253,6 +330,7 @@ export default function TaskScheduler() {
   };
 
   const deleteTask = (id) => {
+    deletingTaskRef.current = true;
     setTasks((p) => p.filter((t) => t.id !== id));
     setLinks((p) => p.filter((l) => l.fromId !== id && l.toId !== id));
   };
@@ -308,6 +386,8 @@ export default function TaskScheduler() {
   }, [getWorkingDayStartPosition, getTaskRealEndDay, links]);
 
   useEffect(() => {
+    if (isImportingRef.current) return; // インポート中はスキップ（projectStartDate effectで処理）
+    if (deletingTaskRef.current) { deletingTaskRef.current = false; return; } // タスク削除時はスキップ
     const fromDay = lastToggledDayRef.current;
     lastToggledDayRef.current = null;
 
@@ -401,9 +481,18 @@ export default function TaskScheduler() {
     }
   }, [syncTaskTimes, links, getWorkingDayStartPosition, getTaskRealEndDay]);
 
+  // localStorage 自動保存
   useEffect(() => {
-    console.log("tasks updated:", tasks);
-  }, [tasks]);
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        tasks,
+        links,
+        projectStartDate: projectStartDate.toISOString(),
+        projectEndDate: projectEndDate.toISOString(),
+        nonWorkingDates: [...nonWorkingDates],
+      }));
+    } catch { /* quota超過等を無視 */ }
+  }, [tasks, links, projectStartDate, projectEndDate, nonWorkingDates]);
 
   const onMouseDown = useCallback((e, id, type) => {
     if (mode !== "edit") return;
@@ -528,9 +617,12 @@ export default function TaskScheduler() {
   useEffect(() => { linksRef.current = links; });
 
   // プロジェクト開始日変更時のみ：ルートタスクをday0にリセットしてカスケード
-  // links・syncTaskTimes を deps に含めず ref 経由で呼ぶことで、
-  // リンク変更・nonWorkingDates 変更時にこの effect が誤って発火しないようにする
+  // インポート中・links変更・nonWorkingDates変更時は発火しない
   useEffect(() => {
+    if (isImportingRef.current) {
+      isImportingRef.current = false;
+      return;
+    }
     setTasks((prev) => {
       const reset = prev.map((task) => {
         const isRoot = !linksRef.current.some((l) => l.toId === task.id);
@@ -621,6 +713,20 @@ export default function TaskScheduler() {
           padding: "7px 16px", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
         }}>＋ 追加</button>
 
+        {/* Separator */}
+        <div style={{ width: 1, height: 24, background: "#2d3748" }} />
+
+        <button onClick={handleExport} style={{
+          background: "#1e2330", border: "1px solid #2d3748", borderRadius: 8,
+          padding: "7px 14px", color: "#cbd5e1", fontSize: 13, cursor: "pointer",
+        }}>📥 エクスポート</button>
+
+        <button onClick={() => importInputRef.current?.click()} style={{
+          background: "#1e2330", border: "1px solid #2d3748", borderRadius: 8,
+          padding: "7px 14px", color: "#cbd5e1", fontSize: 13, cursor: "pointer",
+        }}>📤 インポート</button>
+        <input ref={importInputRef} type="file" accept=".json" onChange={handleImport} style={{ display: "none" }} />
+
         {mode === "connect" && (
           <span style={{ fontSize: 12, color: "#fbbf24" }}>
             {connectingFrom ? "▶ 接続先のバーをクリック（背景クリックでキャンセル）" : "▶ 接続元のバーをクリック"}
@@ -694,9 +800,11 @@ export default function TaskScheduler() {
                   height: ROW_HEIGHT, display: "flex", alignItems: "center",
                   gap: 8, padding: "0 12px", borderBottom: "1px solid #1e293b",
                   opacity: isDraggingThis ? 0.4 : 1,
-                  borderTop: isDragOver ? "2px solid #3b82f6" : "2px solid transparent",
-                  boxSizing: "border-box",
+                  position: "relative",
                 }}>
+                {isDragOver && (
+                  <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "#3b82f6", zIndex: 5 }} />
+                )}
                 {/* Drag handle */}
                 <span
                   onMouseDown={(e) => {
