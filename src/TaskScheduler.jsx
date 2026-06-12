@@ -193,6 +193,8 @@ export default function TaskScheduler() {
   const [projectEndDate, setProjectEndDate] = useState(saved?.projectEndDate ?? new Date(2026, 5, 30));
   const [nonWorkingDates, setNonWorkingDates] = useState(saved?.nonWorkingDates ?? new Set());
   const timelineAreaRef = useRef(null);
+  const labelRowsRef = useRef(null);
+  const headerScrollRef = useRef(null);
   const importInputRef = useRef(null);
   const isImportingRef = useRef(false);
   const deletingTaskRef = useRef(false);
@@ -603,6 +605,13 @@ export default function TaskScheduler() {
 
   const cancelConnect = useCallback(() => { setConnectingFrom(null); setMousePos(null); }, []);
 
+  // 右側（タイムライン）のスクロールに左側（ラベル列）の行・日付ヘッダーを追従させる
+  const handleTimelineScroll = useCallback((e) => {
+    const { scrollTop, scrollLeft } = e.currentTarget;
+    if (labelRowsRef.current) labelRowsRef.current.scrollTop = scrollTop;
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = scrollLeft;
+  }, []);
+
   const onBarClick = useCallback((e, id) => {
     if (mode !== "connect") return;
     e.stopPropagation();
@@ -648,8 +657,9 @@ export default function TaskScheduler() {
     <div
       style={{
         fontFamily: "'Noto Sans JP','Hiragino Sans',sans-serif",
-        background: "#0f1117", minHeight: "100vh", color: "#e2e8f0",
+        background: "#0f1117", height: "100vh", boxSizing: "border-box", color: "#e2e8f0",
         padding: "32px 24px", userSelect: "none",
+        display: "flex", flexDirection: "column",
       }}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
@@ -780,10 +790,10 @@ export default function TaskScheduler() {
       )}
 
       {/* Timeline */}
-      <div style={{ background: "#151922", borderRadius: 14, border: "1px solid #1e2330", overflow: "hidden", display: "flex" }}>
+      <div style={{ background: "#151922", borderRadius: 14, border: "1px solid #1e2330", overflow: "hidden", display: "flex", flex: "1 1 auto", minHeight: 0 }}>
 
         {/* Fixed left column: header spacer + task labels */}
-        <div style={{ width: labelWidth, flexShrink: 0, background: "#0f1117", zIndex: 10, position: "relative" }}>
+        <div style={{ width: labelWidth, flexShrink: 0, background: "#0f1117", zIndex: 10, position: "relative", display: "flex", flexDirection: "column" }}>
           {/* Resize handle */}
           <div
             onMouseDown={(e) => {
@@ -798,7 +808,8 @@ export default function TaskScheduler() {
             onMouseEnter={(e) => { e.currentTarget.style.background = "#3b82f6"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
           />
-          <div style={{ height: HEADER_HEIGHT, borderBottom: "1px solid #1e293b" }} />
+          <div style={{ height: HEADER_HEIGHT, borderBottom: "1px solid #1e293b", flexShrink: 0 }} />
+          <div ref={labelRowsRef} style={{ flex: 1, minHeight: 0, overflowY: "hidden" }}>
           {tasks.map((task, rowIndex) => {
             const color = COLORS[task.colorIdx % COLORS.length];
             const isDragOver = rowDragging && rowDragging.overIndex === rowIndex && rowDragging.id !== task.id;
@@ -893,12 +904,14 @@ export default function TaskScheduler() {
               </div>
             );
           })}
+          </div>
         </div>
 
-        {/* Scrollable right area: date header + timeline rows */}
-        <div ref={timelineAreaRef} style={{ flex: 1, overflowX: "auto" }}>
+        {/* Right area: date header + scrollable timeline rows */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
-          {/* Day header */}
+          {/* Day header (横スクロールは下のタイムライン行に追従) */}
+          <div ref={headerScrollRef} style={{ overflow: "hidden", flexShrink: 0 }}>
           <div style={{ position: "relative", width: timelineWidth, height: HEADER_HEIGHT, background: "#0f1117", borderBottom: "1px solid #1e293b" }}>
             {/* Month header */}
             <div style={{ position: "absolute", top: 0, width: timelineWidth, height: HEADER_HEIGHT / 2, background: "#0f1117", borderBottom: "1px solid #1e293b" }}>
@@ -944,8 +957,10 @@ export default function TaskScheduler() {
               })}
             </div>
           </div>
+          </div>
 
-          {/* Timeline rows */}
+          {/* Timeline rows (縦スクロール) */}
+          <div ref={timelineAreaRef} onScroll={handleTimelineScroll} style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
           <div style={{ position: "relative", width: timelineWidth }}>
 
             {/* SVG arrows */}
@@ -1058,6 +1073,7 @@ export default function TaskScheduler() {
                 タスクを追加してください
               </div>
             )}
+          </div>
           </div>
         </div>
       </div>
