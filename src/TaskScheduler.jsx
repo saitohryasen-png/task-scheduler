@@ -59,7 +59,7 @@ function ArrowLayer({ tasks, links, onDeleteLink, connectingFrom, mousePos, isWo
   const barRight = (task) => barLeft(task) + getWorkingDaysWidth(task.start, task.duration);
   const midY = (id) => (taskIndexMap[id] ?? 0) * ROW_HEIGHT + ROW_HEIGHT / 2;
 
-  function buildPath(x1, y1, x2, y2) {
+  function buildPath(x1, y1, x2, y2, clearance = 0) {
     const dx = x2 - x1;
     const pad = Math.max(24, Math.abs(dx) * 0.3);
 
@@ -67,8 +67,8 @@ function ArrowLayer({ tasks, links, onDeleteLink, connectingFrom, mousePos, isWo
       // target is to the right → S-curve
       return `M ${x1} ${y1} C ${x1 + pad} ${y1}, ${x2 - pad} ${y2}, ${x2} ${y2}`;
     } else {
-      // target overlaps or is left → route around
-      const vx = Math.max(x1, x2) + 48;
+      // target overlaps or is left → route around（間にある行のバーを避ける）
+      const vx = Math.max(x1, x2, clearance) + 48;
       return [
         `M ${x1} ${y1}`,
         `C ${x1 + 28} ${y1}, ${vx} ${y1}, ${vx} ${(y1 + y2) / 2}`,
@@ -97,7 +97,18 @@ function ArrowLayer({ tasks, links, onDeleteLink, connectingFrom, mousePos, isWo
         const from = tasks.find((t) => t.id === link.fromId);
         const to = tasks.find((t) => t.id === link.toId);
         if (!from || !to) return null;
-        const d = buildPath(barRight(from), midY(from.id), barLeft(to), midY(to.id));
+
+        // from/to の行の間に他のタスク行がある場合、そのバーを避けてループするようにする
+        const fromIdx = taskIndexMap[from.id] ?? 0;
+        const toIdx = taskIndexMap[to.id] ?? 0;
+        const lo = Math.min(fromIdx, toIdx);
+        const hi = Math.max(fromIdx, toIdx);
+        let clearance = 0;
+        tasks.forEach((t, i) => {
+          if (i > lo && i < hi) clearance = Math.max(clearance, barRight(t));
+        });
+
+        const d = buildPath(barRight(from), midY(from.id), barLeft(to), midY(to.id), clearance);
         return (
           <g key={link.id} style={{ pointerEvents: "all" }}>
             {/* invisible wide hit area */}
@@ -797,7 +808,7 @@ export default function TaskScheduler() {
                 key={task.id}
                 onMouseEnter={() => { if (rowDragging) setRowDragging((p) => ({ ...p, overIndex: rowIndex })); }}
                 style={{
-                  height: ROW_HEIGHT, display: "flex", alignItems: "center",
+                  height: ROW_HEIGHT, boxSizing: "border-box", display: "flex", alignItems: "center",
                   gap: 8, padding: "0 12px", borderBottom: "1px solid #1e293b",
                   opacity: isDraggingThis ? 0.4 : 1,
                   position: "relative",
@@ -951,7 +962,7 @@ export default function TaskScheduler() {
 
               return (
                 <div key={task.id} style={{
-                  position: "relative", width: timelineWidth, height: ROW_HEIGHT,
+                  position: "relative", width: timelineWidth, height: ROW_HEIGHT, boxSizing: "border-box",
                   borderBottom: "1px solid #1e293b",
                   background: rowIndex % 2 === 0 ? "#0f1117" : "#101525",
                 }}>
