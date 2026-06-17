@@ -1,3 +1,8 @@
+/* タイムラインの縦スクロールバーをヘッダー行の下から開始させる */
+.timeline-scroll-area::-webkit-scrollbar-track:vertical {
+  margin-top: 96px; /* HEADER_HEIGHT */
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

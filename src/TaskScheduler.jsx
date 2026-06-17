@@ -194,7 +194,7 @@ export default function TaskScheduler() {
   const [nonWorkingDates, setNonWorkingDates] = useState(saved?.nonWorkingDates ?? new Set());
   const timelineAreaRef = useRef(null);
   const labelRowsRef = useRef(null);
-  const headerScrollRef = useRef(null);
+  const [hScrollbarHeight, setHScrollbarHeight] = useState(0);
   const importInputRef = useRef(null);
   const isImportingRef = useRef(false);
   const deletingTaskRef = useRef(false);
@@ -605,11 +605,20 @@ export default function TaskScheduler() {
 
   const cancelConnect = useCallback(() => { setConnectingFrom(null); setMousePos(null); }, []);
 
-  // 右側（タイムライン）のスクロールに左側（ラベル列）の行・日付ヘッダーを追従させる
+  // 右側（タイムライン）の縦スクロールに左側（ラベル列）の行を追従させる
   const handleTimelineScroll = useCallback((e) => {
-    const { scrollTop, scrollLeft } = e.currentTarget;
-    if (labelRowsRef.current) labelRowsRef.current.scrollTop = scrollTop;
-    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = scrollLeft;
+    if (labelRowsRef.current) labelRowsRef.current.scrollTop = e.currentTarget.scrollTop;
+  }, []);
+
+  // 横スクロールバーの高さを計測し、左ラベル列の高さ調整に使う
+  useEffect(() => {
+    const el = timelineAreaRef.current;
+    if (!el) return;
+    const measure = () => setHScrollbarHeight(el.offsetHeight - el.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const onBarClick = useCallback((e, id) => {
@@ -905,14 +914,16 @@ export default function TaskScheduler() {
             );
           })}
           </div>
+          {/* 右側の横スクロールバー分だけ高さを合わせるスペーサー */}
+          <div style={{ height: hScrollbarHeight, flexShrink: 0 }} />
         </div>
 
-        {/* Right area: date header + scrollable timeline rows */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* Right area: header (sticky) + rows in one scroll container */}
+        <div ref={timelineAreaRef} onScroll={handleTimelineScroll} className="timeline-scroll-area"
+          style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto" }}>
 
-          {/* Day header (横スクロールは下のタイムライン行に追従) */}
-          <div ref={headerScrollRef} style={{ overflow: "hidden", flexShrink: 0 }}>
-          <div style={{ position: "relative", width: timelineWidth, height: HEADER_HEIGHT, background: "#0f1117", borderBottom: "1px solid #1e293b" }}>
+          {/* Day header - sticky so it stays visible during vertical scroll */}
+          <div style={{ position: "sticky", top: 0, zIndex: 30, width: timelineWidth, height: HEADER_HEIGHT, background: "#0f1117", borderBottom: "1px solid #1e293b" }}>
             {/* Month header */}
             <div style={{ position: "absolute", top: 0, width: timelineWidth, height: HEADER_HEIGHT / 2, background: "#0f1117", borderBottom: "1px solid #1e293b" }}>
               {months.map(({ month, start, end }) => {
@@ -957,10 +968,8 @@ export default function TaskScheduler() {
               })}
             </div>
           </div>
-          </div>
 
-          {/* Timeline rows (縦スクロール) */}
-          <div ref={timelineAreaRef} onScroll={handleTimelineScroll} style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+          {/* Timeline rows */}
           <div style={{ position: "relative", width: timelineWidth }}>
 
             {/* SVG arrows */}
@@ -1073,7 +1082,6 @@ export default function TaskScheduler() {
                 タスクを追加してください
               </div>
             )}
-          </div>
           </div>
         </div>
       </div>
