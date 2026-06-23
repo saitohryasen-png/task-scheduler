@@ -534,7 +534,7 @@ export default function TaskScheduler() {
       const r = timelineAreaRef.current.getBoundingClientRect();
       setMousePos({
         x: e.clientX - r.left + timelineAreaRef.current.scrollLeft,
-        y: e.clientY - r.top - HEADER_HEIGHT,
+        y: e.clientY - r.top - HEADER_HEIGHT + timelineAreaRef.current.scrollTop,
       });
     }
   }, [dragging, connectingFrom]);
